@@ -1,0 +1,632 @@
+---
+title: "AFM 346 <br/> Assignment 2 <br/> Predicting Sale Price from House Attributes"
+author: 
+    - "David Modjeska"
+    - "School of Accounting and Finance, University of Waterloo"
+output: 
+    html_document: 
+      toc: yes
+      toc_float: yes
+      theme: default
+editor_options: 
+    chunk_output_type: console
+---
+    
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(include = FALSE, eval = FALSE)
+
+```
+
+## Assignment Instructions
+
+### General
+
+#### Introduction
+
+In this assignment, you will explore several models to predict sale price from the attributes of a house. This exploration will use a subset of the Ames data set, similar to the one that you explored in Assignment 1. In this process, you will train, validate, and test some models (as seen in class) to select the one with the best performance. To support the modeling, you will also split the data between training and test sets.
+
+#### Background (from [Investopedia](https://www.investopedia.com/terms/f/fairmarketvalue.asp))
+
+> In its simplest sense, fair market value (FMV) is the price an asset would sell for on the open market. Fair market value has come to represent the price of an asset under the following usual set of conditions: prospective buyers and sellers are reasonably knowledgeable about the asset, behaving in their own best interest, free of undue pressure to trade, and given a reasonable period for completing the transaction.
+
+> Given these conditions, an asset's fair market value should represent an accurate valuation or assessment of its worth. The term is commonly used in tax law and the real estate market.
+
+> ...
+
+> Appraisal fraud is a form of mortgage fraud, whereby the value of a home is deliberately appraised above its market value. 
+
+#### Use Case
+
+Suppose that you are a statistical consultant hired by a bank to investigate the association between the attributes of a house and its sale price. The bank is hoping to reduce appraisal fraud in their mortgage division. So your goal is to develop an accurate model that can be used to predict sale price on the basis of house attributes.
+
+### Formatting and Submission
+
+#### Formatting and Style
+
+* Choose self-explanatory names for functions, variables, and so on.
+* Format your code for legibility.
+* Set your markdown chunks to show code (using ```echo=TRUE```) but hide messages (using ```message=FALSE```).
+* Organize your report into logical sections for smooth reading. Explain each step of your modeling process. Also describe the outcome of your experiment (e.g., success, failure, or something in between).
+* Create the report as a readable document, rather than as a series of questions and answers. Any mix of paragraph text and bullet points is reasonable. Also, starting each section with some text - rather than code, plots, or tables - makes the report easier to read.
+* Be clear overall, and state your modeling choices explicitly.
+* Be concise and focused, so that your report can be reviewed by the audience efficiently. 
+* Include a floating table of contents.
+* Use semantic elements clearly to organize your report into sections, subsections, etc.
+* Feel free to personalize your submission with themes for R Markdown and ```ggplot```. 
+* Please cite any external sources that you used for coding or reference at the end of your report.
+
+#### Submission
+
+* Please submit both the Rmd and the MHTML files.
+
+### Report Organization
+
+Please follow the following outline at the top level. You're welcome to add subsections as needed within these top-level categories. Also, be sure to remove the assignment instructions from your report.
+
+As a detail, different seeds for random number generation will give slightly different results than the ones below. This is nothing to worry about.
+
+* Introduction
+    * Exploratory Data Analysis
+    * Approach to Splitting Data
+    * Performance Metrics
+* KNN
+    * Training Results
+    * Validation Results
+* Linear Regression
+    * Training Results
+    * Validation Results
+* Model Selection and Testing
+* Conclusion
+    
+## Introduction
+
+* In general terms, describe the data and the modeling objective. From the perspective of bank management, what is the model predicting and what result would they like to achieve?
+* Specifically and briefly, describe the data set in terms of variables and number of observations.
+* Briefly explain the modeling process that you will follow, including the methods to use.
+* Summarize your general conclusions. (You can write this after completing the modeling.)
+
+### Exploratory Data Analysis
+
+* Load the Ames data from the ```modeldata``` package.
+
+```{r eval = TRUE, message = FALSE}
+
+library(tidyverse)
+library(lubridate)
+library(tidymodels)
+library(GGally)
+library(knitr)
+
+```
+
+```{r include = TRUE, eval = TRUE}
+
+# load the data
+library(modeldata)
+data(ames)
+
+# preprocess the data
+houses <- ames %>%
+    
+    # select some useful numeric columns
+    select(
+        Sale_Price, Lot_Frontage, Lot_Area, Gr_Liv_Area, Garage_Area, Pool_Area,
+        TotRms_AbvGrd, Year_Built
+    )
+
+```
+
+* Show a pairwise table of scatter plots and correlations. 
+* Comment on aspects of the table that you find interesting, such as scatter plots, density plots, and correlations. Be sure to touch on the following items:
+    * The distribution of each variable
+    * The correlations among the variables. (A correlation of 1 or -1 is strong, and a correlation of 0 is weak.)
+    * Any striking relationships between variables shown in the scatter plots
+
+```{r}
+
+houses %>%
+    ggpairs(title = "Exploratory Data Analysis")
+
+```
+
+### Training, Validation, and Testing Data
+
+As a review, here's a flowchart of how to "spend" your data, from the tidymodels website, Chapter 5, ["A predictive modeling case study"](https://www.tidymodels.org/start/case-study/):
+
+![](../images/validation-split.png)
+
+* Provide an introduction about data splitting.
+    * Explain the rationale for splitting data into training and test sets.
+    * In addition, briefly justify the use of a validation set.
+* Split the data between testing and non-testing sets
+    * Use the ```set.seed(3051)``` function to make your results repeatable.
+    * Using the ```initial_split()``` function, set the proportion and stratification as needed.
+    * Use the ```training()``` and ```testing()``` functions to create ```other_data``` and ```test_data``` tibbles.
+* Split the non-testing data between training and validation sets
+    * Use the ```set.seed(8427)``` function to make your results repeatable.
+    * Using the ```initial_split()``` function, set the proportion and stratification as needed.
+    * Use the ```training()``` and ```testing()``` functions to create ```training_data``` and ```validation_data``` tibbles.
+* Note: in both of the splits above, please set ```prop=0.7``` and ```strata=Sale_Price```. Explain what these parameters signify.
+
+```{r}
+
+set.seed(3051)
+houses_split_1 <- initial_split(houses, prop=0.7, strata = Sale_Price)
+
+other_data <- training(houses_split_1)
+test_data <- testing(houses_split_1)
+
+dim(other_data)
+dim(test_data)
+
+```
+
+```{r}
+
+set.seed(8427)
+houses_split_2 <- initial_split(other_data, prop=0.7, strata = Sale_Price)
+
+training_data <- training(houses_split_2)
+validation_data <- testing(houses_split_2)
+
+dim(training_data)
+dim(validation_data)
+
+```
+
+### Performance Metrics
+
+* Consider the standard metrics overall, which are available via the ```metrics()``` function:
+    * RMSE - root mean squared error
+    * MAE - mean absolute error
+    * $R^{2}$ - R-squared
+* Choose one of these metrics for optimizing the model training process and selecting among possible models. Explain your choice.
+* Retain the measures that you didn't choose for optimization, in order to help with your model selection in general.
+
+## KNN
+
+* Create three KNN models, setting their engine and mode appropriately. In each model, use one of the following number of neighbors as a hyperparameter: 4, 8, and 12.
+* Training
+    * Train the KNN models that you created on the training set ```training_data```.
+    * Generate predictions for each model using the ```predict(..., new_data=training_data)``` function.    
+        * Use the ```bind_cols()``` function to insert these predictions into ```training_data```. 
+        * Rename any new columns as needed.    
+    * Report performance metrics using the *training* set ```training_data```:
+        * Include the three metrics discussed in the section above: RMSE, MAE, and $R^{2}$.
+        * Create a new column ```k``` (e.g., 4) using the ```mutate()``` function.
+        * Create a new column ```dataset``` (e.g., 'training') using the ```mutate()``` function.        
+        * Combine the three sets of metrics into a single tibble using the ```bind_rows()``` function.
+        * Use the ```pivot_wider()``` function to make the table more readable.
+        * Display the training metrics in an attractive format using the ```kable()``` function.
+* Validation
+    * Also report performance metrics using the *validation* set ```validation_data```. You can follow the metrics instructions above for the training set, but use ```validation_data``` and new variable names as appropriate.
+    
+Below is some partial code to use as a skeleton solution.
+
+```{r include = TRUE, eval = FALSE}
+
+predict_knn_train_4 <- predict(...) %>%
+    rename(...)
+
+training_data <- training_data %>%
+    bind_cols(...,
+              ...,
+              ...)
+
+metrics_knn_training_4 <- metrics(...) %>%
+    mutate(k = ..., 
+           dataset = ...)
+
+metrics_knn_training <- bind_rows(...,
+                               ...,
+                               ...)
+
+metrics_knn_training_wide <- metrics_knn_training %>%
+    pivot_wider(id_cols = ..., 
+                names_from = ..., 
+                values_from = ...)
+
+metrics_knn_training_wide %>%
+    kable(digits = ...,
+          caption = ...)
+
+```
+
+
+```{r}
+
+knn_model_4 <-
+    nearest_neighbor(neighbors = 4) %>%
+    set_engine("kknn") %>%
+    set_mode("regression")
+
+knn_model_8 <-
+    nearest_neighbor(neighbors = 8) %>%
+    set_engine("kknn") %>%
+    set_mode("regression")
+
+knn_model_12 <-
+    nearest_neighbor(neighbors = 12) %>%
+    set_engine("kknn") %>%
+    set_mode("regression")
+
+knn_model_4
+knn_model_8
+knn_model_12
+
+```
+
+```{r}
+
+my_formula <- as.formula(
+    "Sale_Price ~ 
+    Lot_Frontage + Lot_Area + Gr_Liv_Area + Garage_Area + Pool_Area + TotRms_AbvGrd +
+    Year_Built"
+    )
+
+knn_4_fit <-
+    knn_model_4 %>%
+    fit(my_formula, data = training_data)
+
+knn_8_fit <-
+    knn_model_8 %>%
+    fit(my_formula, data = training_data)
+
+knn_12_fit <-
+    knn_model_12 %>%
+    fit(my_formula, data = training_data)
+
+knn_4_fit
+knn_8_fit
+knn_12_fit
+
+```
+
+```{r}
+
+predictions_knn_train_4 <- predict(knn_4_fit, new_data = training_data) %>%
+    rename(y_predict_knn_4 = .pred)
+
+predictions_knn_train_8 <- predict(knn_8_fit, new_data = training_data) %>%
+        rename(y_predict_knn_8 = .pred)
+
+predictions_knn_train_12 <- predict(knn_12_fit, new_data = training_data) %>%
+    rename(y_predict_knn_12 = .pred) 
+
+training_data <- training_data %>%
+    bind_cols(predictions_knn_train_4,
+              predictions_knn_train_8,
+              predictions_knn_train_12)
+
+```
+
+Here is some sample output for training metrics to use as a suggestion.
+
+```{r}
+
+metrics_knn_training_4 <- metrics(training_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_knn_4) %>%
+    mutate(k = 4, dataset = 'training')
+
+metrics_knn_training_8 <- metrics(training_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_knn_8) %>%
+    mutate(k = 8, dataset = 'training')
+
+metrics_knn_training_12 <- metrics(training_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_knn_12) %>%
+    mutate(k = 12, dataset = 'training')
+
+metrics_knn_training <- bind_rows(metrics_knn_training_4,
+                               metrics_knn_training_8,
+                               metrics_knn_training_12)
+
+metrics_knn_training_wide <- metrics_knn_training %>%
+    pivot_wider(id_cols = c(k, .estimator, dataset), 
+                names_from = .metric, 
+                values_from = .estimate)
+
+metrics_knn_training_wide %>%
+    kable(digits = 4,
+          caption = "KNN Training Metrics")
+
+```
+
+```{r}
+
+predictions_knn_validation_4 <- predict(knn_4_fit, new_data = validation_data) %>%
+    rename(y_predict_knn_4 = .pred)
+
+predictions_knn_validation_8 <- predict(knn_8_fit, new_data = validation_data) %>%
+        rename(y_predict_knn_8 = .pred)
+
+predictions_knn_validation_12 <- predict(knn_12_fit, new_data = validation_data) %>%
+    rename(y_predict_knn_12 = .pred) 
+
+validation_data <- validation_data %>%
+    bind_cols(predictions_knn_validation_4,
+              predictions_knn_validation_8,
+              predictions_knn_validation_12)
+
+```
+
+```{r}
+
+metrics_knn_validation_4 <- metrics(validation_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_knn_4) %>%
+    mutate(k = 4, dataset = 'validation')
+
+metrics_knn_validation_8 <- metrics(validation_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_knn_8) %>%
+    mutate(k = 8, dataset = 'validation')
+
+metrics_knn_validation_12 <- metrics(validation_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_knn_12) %>%
+    mutate(k = 12, dataset = 'validation')
+
+metrics_knn_validation <- bind_rows(metrics_knn_validation_4,
+                               metrics_knn_validation_8,
+                               metrics_knn_validation_12)
+
+metrics_knn_validation_wide <- metrics_knn_validation %>%
+    pivot_wider(id_cols = c(k, .estimator, dataset), 
+                names_from = .metric, 
+                values_from = .estimate)
+
+metrics_knn_validation_wide %>%
+    kable(digits = 4,
+          caption = "KNN Validation Metrics")
+
+```
+
+### Visualize the KNN Performance
+
+* Combine the training and validation metrics into a single tibble using the ```bind_rows()``` function.
+* Visualize model performance with number of neighbors (k) on the x-axis, metric value on the y-axis, data set as the color, and metric type for faceting.
+* A possible solution is shown below as a suggestion, using another data set.
+
+#### Possible Solution
+
+```{r include = TRUE, eval = FALSE}
+
+knn_metrics <- bind_rows(metrics_knn_training,
+                         metrics_knn_validation)
+
+knn_metrics %>%
+    ggplot(aes(x = k, y = .estimate, color = dataset)) +
+    geom_point() +
+    geom_line() +
+    facet_wrap(vars(.metric), scales = 'free_y') +
+    labs(title = 'Performance of KNN Models',
+         x = 'Number of Neighbors (k)',
+         y = 'Metric Value')
+
+```
+
+![](../images/assignment_2_knn_performance_plot.png)
+
+#### Actual Solution
+
+```{r fig.width = 8.5}
+
+knn_metrics <- bind_rows(metrics_knn_training,
+                         metrics_knn_validation)
+
+knn_metrics %>%
+    ggplot(aes(x = k, y = .estimate, color = dataset)) +
+    geom_point() +
+    geom_line() +
+    facet_wrap(vars(.metric), scales = 'free_y') +
+    labs(title = 'Performance of KNN Models',
+         x = 'Number of Neighbors (k)',
+         y = 'Metric Value')
+
+```
+
+* Please comment on the best performing KNN model, according to the metric that you chose near the beginning of this report. Explain your choice of model.
+
+## Linear Regression
+
+* Create a linear regression model with the computational engine set to ```'lm```.
+* Fit this model on the training data.
+* Display and comment on the model estimates, standard errors, and p-values. Assume a significance threshold of 0.01 for p-values. Do any predictors seem to be statistically insignificant using these p-values?
+
+```{r}
+
+lm_model <-
+    linear_reg() %>%
+    set_mode("regression") %>%
+    set_engine("lm")
+
+lm_model
+
+```
+
+```{r}
+
+lm_fit_larger <-
+    lm_model %>%
+    fit(my_formula, data = training_data)
+    
+tidy(lm_fit_larger)
+
+
+```
+
+* Fit the same linear regression model to the training data, but this time, omit the insignificant predictors that you identified above.
+
+```{r}
+
+my_formula_smaller <- as.formula(
+    "Sale_Price ~ 
+    Sale_Price, Lot_Frontage, Lot_Area, Gr_Liv_Area, Garage_Area, TotRms_AbvGrd, 
+    Year_Built"
+    )
+
+lm_fit_smaller <-
+    lm_model %>%
+    fit(my_formula_smaller, data = training_data)
+    
+tidy(lm_fit_smaller)
+
+```
+
+* Adapting the instructions from the KNN section of this report, calculate and display the *training* performance metrics for each linear regression model.
+
+
+```{r}
+
+predictions_lm_training_larger <- predict(lm_fit_larger, new_data = training_data) %>%
+    rename(y_predict_lm_larger = .pred)
+
+predictions_lm_training_smaller <- predict(lm_fit_smaller, new_data = training_data) %>%
+    rename(y_predict_lm_smaller = .pred)
+
+training_data <- training_data %>%
+    bind_cols(predictions_lm_training_larger,
+              predictions_lm_training_smaller)
+
+```
+
+```{r}
+
+metrics_lm_training_larger <- metrics(training_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_lm_larger) %>%
+    mutate(predictors = 'Larger', dataset = 'training')
+
+metrics_lm_training_smaller <- metrics(training_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_lm_smaller) %>%
+    mutate(predictors = 'Smaller', dataset = 'training')
+
+metrics_lm_training <- bind_rows(metrics_lm_training_larger,
+                               metrics_lm_training_smaller)
+
+metrics_lm_training_wide <- metrics_lm_training %>%
+    pivot_wider(id_cols = c(predictors, .estimator, dataset), 
+                names_from = .metric, 
+                values_from = .estimate)
+
+metrics_lm_training_wide %>%
+    kable(digits = 4,
+          caption = "Linear Regression - Training Metrics")
+
+```
+
+* Next, adapting the instructions from the KNN section of this report, calculate and display the *validation* performance metrics for each linear regression model.
+
+```{r}
+
+predictions_lm_validation_larger <- predict(lm_fit_larger, new_data = validation_data) %>%
+    rename(y_predict_lm_larger = .pred)
+
+predictions_lm_validation_smaller <- predict(lm_fit_smaller, new_data = validation_data) %>%
+    rename(y_predict_lm_smaller = .pred)
+
+validation_data <- validation_data %>%
+    bind_cols(predictions_lm_validation_larger,
+              predictions_lm_validation_smaller)
+
+```
+
+```{r}
+
+metrics_lm_validation_larger <- metrics(validation_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_lm_larger) %>%
+    mutate(predictors = "Larger", dataset = 'validation')
+
+metrics_lm_validation_smaller <- metrics(validation_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_lm_smaller) %>%
+    mutate(predictors = "Smaller", dataset = 'validation')
+
+metrics_lm_validation <- bind_rows(metrics_lm_validation_larger,
+                               metrics_lm_validation_smaller)
+
+metrics_lm_validation_wide <- metrics_lm_validation %>%
+    pivot_wider(id_cols = c(predictors, .estimator, dataset), 
+                names_from = .metric, 
+                values_from = .estimate)
+
+metrics_lm_validation_wide %>%
+    kable(digits = 4,
+          caption = "Linear Regression - Validation Metrics")
+
+```
+
+* Please comment on the best performing linear regression model, according to the metric that you chose near the beginning of this report. Explain your choice of model.
+
+## Select, Train, and Test the Final Model
+
+In the report sections above, you trained and validated a number of models. After this, you selected the best performing of each model type - one KNN model and one linear regression model. Now it's time to select the best model overall.
+
+* Train the best of each model type on the ```other_data``` dataset. This is the combined training and validation set.
+* Test each of these two models on the ```test_data``` dataset by using the ```predict()``` function as usual.
+    * Bind the prediction results to the test data.
+* Generate and display performance metrics for the test data using the ```metrics()``` function.
+    * For each set of these metrics, you may want to create a new column ```model``` (e.g., 'KNN') using the ```mutate()``` function.
+    * You can use the instructions from the KNN and linear-regression sections above to display these metrics in a readable table using the ```bind_rows()```, ```pivot_wider()```  ```kable()``` functions again.
+    
+```{r}
+
+knn_4_other_fit <-
+    knn_model_4 %>%
+    fit(my_formula, data = other_data)
+
+predictions_knn_test <- predict(knn_4_other_fit, new_data = test_data) %>%
+    rename(y_predict_knn = .pred)
+
+lm_other_fit_larger <-
+    lm_model %>%
+    fit(my_formula, data = other_data)
+
+predictions_lm_test <- predict(lm_other_fit_larger, 
+                                       new_data = test_data) %>%
+    rename(y_predict_lm = .pred)
+
+test_data <- test_data %>%
+    bind_cols(predictions_knn_test,
+              predictions_lm_test)
+
+```
+
+```{r}
+
+metrics_knn_test <- metrics(test_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_knn) %>%
+    mutate(model = 'KNN')
+
+metrics_lm_test <- metrics(test_data, 
+                             truth = Sale_Price, 
+                             estimate = y_predict_lm) %>%
+    mutate(model = 'Linear Regression')
+
+test_metrics <- bind_rows(metrics_knn_test,
+                          metrics_lm_test)
+
+test_metrics_wide <- test_metrics %>%
+    pivot_wider(id_cols = c(model, .estimator),
+                names_from = .metric,
+                values_from = .estimate)
+
+test_metrics_wide %>%
+    kable(digits = 4,
+          caption = 'Test Performance Metrics')
+
+```
+
+## Conclusion
+
+* Which model type would you recommend to bank management? Please explain the rationale. What experimental results would have caused you to make a different recommendation, hypothetically speaking?
+* For your recommended model, compare the performance metrics from the training, validation, and test sets. Between the training and validation metrics, which metrics were too optimistic? Please explain your rationale.
+* Finally, comment on why a validation set was essential for proper modeling in this experiment. Also, are there any disadvantages to using only one validation set - if so, what method might potentially handle those disadvantages (and so improve the modeling process overall)?
+
